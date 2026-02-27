@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ott_backend
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+
+  # Django Application with HLS Encoding
+  web:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+      - media_data:/var/media
+      - /tmp/hls_videos:/tmp/hls_videos  # Temp encoding directory
+    ports:
+      - "8000:8000"
+    environment:
+      DEBUG: 'False'
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: ott_backend
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: db
+      DB_PORT: 5432
+      # R2 Configuration
+      R2_ACCOUNT_ID: 'your-account-id'
+      R2_ACCESS_KEY_ID: 'your-access-key'
+      R2_SECRET_ACCESS_KEY: 'your-secret-key'
+      R2_BUCKET_NAME: 'ott-videos'
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:
+  media_data:

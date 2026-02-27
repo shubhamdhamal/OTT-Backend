@@ -1,0 +1,12 @@
+# Backend Requirements for HLS Streaming
+Django==4.2.0
+djangorestframework==3.14.0
+django-cors-headers==4.0.0
+boto3==1.26.137  # For Cloudflare R2 storage
+ffmpeg-python==0.2.0
+Pillow==9.5.0
+python-dotenv==1.0.0
+psycopg2-binary==2.9.6  # PostgreSQL adapter
+
+# NO REDIS OR CELERY REQUIRED!
+# Encoding is now synchronous and R2 is used for storage.
