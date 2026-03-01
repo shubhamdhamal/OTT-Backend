@@ -53,6 +53,10 @@ RUN mkdir -p /tmp/hls_videos \
              /app/media/uploads \
              /app/staticfiles \
              /var/log/ott && \
+    # Force IPv4 over IPv6 for all DNS lookups (getaddrinfo) inside the container.
+    # Supabase hostnames return both A and AAAA records; many VPS providers
+    # have no IPv6 route, causing psycopg2 to fail with "Cannot assign requested address".
+    echo 'precedence ::ffff:0:0/96  100' >> /etc/gai.conf && \
     # Non-root user for security
     groupadd -r django && useradd -r -g django django && \
     chown -R django:django /app /tmp/hls_videos /var/log/ott

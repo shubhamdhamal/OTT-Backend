@@ -17,12 +17,6 @@ x-common: &common
   depends_on:
     redis:
       condition: service_healthy
-  # Force IPv4 — Supabase resolves to IPv6 on some VPS providers but
-  # the route is unreachable. Disabling IPv6 in the container makes
-  # psycopg2 connect via IPv4 instead.
-  sysctls:
-    - net.ipv6.conf.all.disable_ipv6=1
-    - net.ipv6.conf.default.disable_ipv6=1
 
 services:
 
