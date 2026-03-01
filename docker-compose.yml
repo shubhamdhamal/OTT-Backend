@@ -1,44 +1,76 @@
-version: '3.8'
+version: '3.9'
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  OTT Backend — Production Docker Compose
+#  Services: web (Gunicorn) · celery · redis
+#  External: Supabase PostgreSQL · Cloudflare R2
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-common: &common
+  build: .
+  restart: unless-stopped
+  env_file: .env
+  volumes:
+    - media_data:/app/media
+    - hls_tmp:/tmp/hls_videos
+    - logs:/var/log/ott
+  depends_on:
+    redis:
+      condition: service_healthy
 
 services:
-  # PostgreSQL Database
-  db:
-    image: postgres:15
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    environment:
-      POSTGRES_DB: ott_backend
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
 
-  # Django Application with HLS Encoding
-  web:
-    build: .
-    command: python manage.py runserver 0.0.0.0:8000
-    volumes:
-      - .:/app
-      - media_data:/var/media
-      - /tmp/hls_videos:/tmp/hls_videos  # Temp encoding directory
+  # ── Redis (Celery broker + result backend) ────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save ""
     ports:
-      - "8000:8000"
-    environment:
-      DEBUG: 'False'
-      DB_ENGINE: django.db.backends.postgresql
-      DB_NAME: ott_backend
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_HOST: db
-      DB_PORT: 5432
-      # R2 Configuration
-      R2_ACCOUNT_ID: 'your-account-id'
-      R2_ACCESS_KEY_ID: 'your-access-key'
-      R2_SECRET_ACCESS_KEY: 'your-secret-key'
-      R2_BUCKET_NAME: 'ott-videos'
-    depends_on:
-      - db
+      - "127.0.0.1:6379:6379"   # bind to localhost only — not exposed publicly
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis_data:/data
+
+  # ── Django / Gunicorn ─────────────────────────────────────────────────────
+  web:
+    <<: *common
+    ports:
+      - "127.0.0.1:8000:8000"   # Nginx reverse-proxies to this
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+  # ── Celery worker (HLS video encoding) ───────────────────────────────────
+  celery:
+    <<: *common
+    command: >
+      celery -A ott_backend worker
+        --loglevel=info
+        --concurrency=2
+        --max-tasks-per-child=10
+        -Q celery
+    healthcheck:
+      test: ["CMD", "celery", "-A", "ott_backend", "inspect", "ping", "-d", "celery@$$HOSTNAME"]
+      interval: 60s
+      timeout: 20s
+      start_period: 30s
+      retries: 3
+
+  # ── Celery Beat (optional periodic tasks) ────────────────────────────────
+  # Uncomment if you add periodic cleanup tasks
+  # celery-beat:
+  #   <<: *common
+  #   command: celery -A ott_backend beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
 
 volumes:
-  postgres_data:
   media_data:
+  hls_tmp:
+  logs:
+  redis_data:

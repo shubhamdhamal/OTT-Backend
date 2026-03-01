@@ -1,0 +1,73 @@
+# OTT Backend — Production Requirements
+# Generated from venv freeze, trimmed to direct dependencies
+
+# Django core
+Django==4.2
+djangorestframework==3.14.0
+django-cors-headers==4.0.0
+asgiref==3.11.1
+
+# Database
+psycopg2-binary==2.9.6
+
+# Gunicorn WSGI server
+gunicorn==21.2.0
+
+# Async task queue
+celery==5.6.2
+redis==7.2.1
+kombu==5.6.2
+amqp==5.3.1
+billiard==4.2.4
+vine==5.1.0
+
+# Cloudflare R2 / AWS S3
+boto3==1.26.137
+botocore==1.29.165
+s3transfer==0.6.2
+jmespath==1.1.0
+
+# Supabase
+supabase==2.28.0
+supabase-auth==2.28.0
+supabase-functions==2.28.0
+postgrest==2.28.0
+realtime==2.28.0
+storage3==2.28.0
+httpx==0.28.1
+httpcore==1.0.9
+websockets==15.0.1
+h2==4.3.0
+hpack==4.1.0
+hyperframe==6.1.0
+
+# Auth / crypto
+PyJWT==2.11.0
+cryptography==46.0.5
+
+# FFmpeg Python bindings
+ffmpeg-python==0.2.0
+
+# Image processing
+Pillow==9.5.0
+
+# Environment
+python-dotenv==1.0.0
+
+# HTTP
+requests==2.32.5
+urllib3==1.26.20
+certifi==2026.2.25
+charset-normalizer==3.4.4
+idna==3.11
+
+# Utilities
+python-dateutil==2.9.0.post0
+pytz==2025.2
+tzdata==2025.3
+six==1.17.0
+packaging==26.0
+typing_extensions==4.15.0
+pydantic==2.12.5
+pydantic_core==2.41.5
+annotated-types==0.7.0
