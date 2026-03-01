@@ -178,6 +178,7 @@ R2_ACCESS_KEY_ID = os.getenv('R2_ACCESS_KEY_ID')
 R2_SECRET_ACCESS_KEY = os.getenv('R2_SECRET_ACCESS_KEY')
 R2_BUCKET_NAME = os.getenv('R2_BUCKET_NAME')
 R2_ENDPOINT_URL = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com" if R2_ACCOUNT_ID else None
+R2_PUBLIC_DOMAIN = os.getenv('R2_PUBLIC_DOMAIN')  # Public CDN URL e.g. https://pub-xxx.r2.dev
 
 # DRF Configuration
 REST_FRAMEWORK = {
@@ -206,6 +207,7 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@ott-platform.com')
 # HLS Encoding Settings
 HLS_SEGMENTS_DIR = os.path.join(BASE_DIR, 'media', 'hls_segments')
 HLS_OUTPUT_DIR = '/tmp/hls_videos'  # Temporary directory for encoding
+HLS_TEMP_DIR = '/tmp/hls_videos'
 
 # Celery Configuration (for async video encoding)
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
@@ -217,12 +219,13 @@ CELERY_TIMEZONE = 'UTC'
 CELERY_TASK_TIME_LIMIT = 120 * 60  # 2 hours hard timeout for encoding tasks (adjust as needed)
 CELERY_TASK_SOFT_TIME_LIMIT = 115 * 60  # 115 minutes soft timeout (before hard kill)
 
-# Data upload max size (for large video files)
-DATA_UPLOAD_MAX_MEMORY_SIZE = 5368709120  # 5GB
-FILE_UPLOAD_MAX_MEMORY_SIZE = 5368709120  # 5GB
-HLS_TEMP_DIR = '/tmp/hls_videos'
+# File upload size limits (for large video files up to 5GB)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024 * 1024  # 5GB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024 * 1024  # 5GB
+MAX_UPLOAD_SIZE = 5 * 1024 * 1024 * 1024               # 5GB
 
-# File upload settings
-MAX_UPLOAD_SIZE = 5000 * 1024 * 1024  # 5GB
-DATA_UPLOAD_MAX_MEMORY_SIZE = 5000 * 1024 * 1024
-FILE_UPLOAD_MAX_MEMORY_SIZE = 5000 * 1024 * 1024
+# Use temp-file handler first so large videos are streamed to disk, not held in RAM
+FILE_UPLOAD_HANDLERS = [
+    'django.core.files.uploadhandler.TemporaryFileUploadHandler',
+    'django.core.files.uploadhandler.MemoryFileUploadHandler',
+]

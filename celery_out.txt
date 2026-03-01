@@ -1,0 +1,26 @@
+ 
+ -------------- celery@LAPTOP-3SAV5SCN v5.6.2 (recovery)
+--- ***** ----- 
+-- ******* ---- Windows-10-10.0.26100-SP0 2026-03-01 13:25:40
+- *** --- * --- 
+- ** ---------- [config]
+- ** ---------- .> app:         ott_backend:0x1e425f5d690
+- ** ---------- .> transport:   redis://localhost:6379/0
+- ** ---------- .> results:     redis://localhost:6379/0
+- *** --- * --- .> concurrency: 12 (solo)
+-- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
+--- ***** ----- 
+ -------------- [queues]
+                .> celery           exchange=celery(direct) key=celery
+                
+
+[tasks]
+  . hls_streaming.tasks.cleanup_old_encodings
+  . hls_streaming.tasks.encode_video_to_hls
+  . hls_streaming.tasks.generate_hls_thumbnail
+  . ott_backend.celery.debug_task
+
+
+worker: Hitting Ctrl+C again will initiate cold shutdown, terminating all running tasks!
+
+worker: Warm shutdown (MainProcess)

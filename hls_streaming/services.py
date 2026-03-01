@@ -51,8 +51,8 @@ class HLSEncodingConfig:
     ]
     
     # Segment configuration
-    SEGMENT_DURATION = 6  # seconds
-    SEGMENT_COUNT = 3     # segments in playlist
+    SEGMENT_DURATION = 6  # seconds per segment
+    SEGMENT_COUNT = 0     # 0 = unlimited (VOD: include ALL segments in playlist)
     
     # Encoding settings
     CRF_HEVC = 28         # Quality (lower = better, 28 = good quality at lower bitrate)
@@ -181,8 +181,12 @@ class HLSStreamingService:
             "-c:a", self.config.AUDIO_CODEC,
             "-b:a", self.config.AUDIO_BITRATE,
             "-ar", str(self.config.AUDIO_SAMPLE_RATE),
+            "-ac", "2",               # Force stereo — Dolby Atmos/5.1/7.1 sources crash Flutter ExoPlayer in HLS TS
+            "-af", "aresample=async=1", # Fix audio sync for multi-channel / variable-frame sources
             "-hls_time", str(self.config.SEGMENT_DURATION),
-            "-hls_list_size", str(self.config.SEGMENT_COUNT),
+            "-hls_list_size", "0",        # 0 = keep ALL segments (required for VOD)
+            "-hls_flags", "independent_segments",  # Each segment is independently decodable
+            "-hls_segment_type", "mpegts",
             "-hls_segment_filename", segment_pattern,
             "-f", "hls",
             playlist_file,
@@ -237,8 +241,12 @@ class HLSStreamingService:
             "-c:a", self.config.AUDIO_CODEC,
             "-b:a", self.config.AUDIO_BITRATE,
             "-ar", str(self.config.AUDIO_SAMPLE_RATE),
+            "-ac", "2",               # Force stereo — Dolby Atmos/5.1/7.1 sources crash Flutter ExoPlayer in HLS TS
+            "-af", "aresample=async=1", # Fix audio sync for multi-channel / variable-frame sources
             "-hls_time", str(self.config.SEGMENT_DURATION),
-            "-hls_list_size", str(self.config.SEGMENT_COUNT),
+            "-hls_list_size", "0",        # 0 = keep ALL segments (required for VOD)
+            "-hls_flags", "independent_segments",  # Each segment is independently decodable
+            "-hls_segment_type", "mpegts",
             "-hls_segment_filename", segment_pattern,
             "-f", "hls",
             playlist_file,
@@ -282,7 +290,7 @@ class HLSStreamingService:
                     f"#EXT-X-STREAM-INF:"
                     f"BANDWIDTH={int(rendition.bitrate[:-1]) * 1000},"
                     f"RESOLUTION={rendition.resolution},"
-                    f"CODECS=\"hev1.1.6.L120\"\n"
+                    f"CODECS=\"hev1.1.6.L120.90,mp4a.40.2\"\n"  # Include audio codec so players init audio
                     f"{rendition.name}/index.m3u8\n\n"
                 )
         

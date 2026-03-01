@@ -121,43 +121,77 @@ def encode_video_to_hls(self, video_id, content_id=None):
         
         logger.info(f"📄 Input file: {input_file} ({os.path.getsize(input_file) / (1024**3):.2f}GB)")
         
-        # ⚠️ CLOSE DB CONNECTION BEFORE LONG-RUNNING ENCODING
-        # FFmpeg encoding can take 20+ minutes, so we close the connection now
-        # and get a fresh one after encoding completes
-        connections.close_all()
-        logger.info(f"🔌 Closed database connections before long encoding operation")
-        
         try:
-            # STEP 1: Encode to HLS
-            logger.info(f"🔄 [Step 1/4] Starting HLS encoding process...")
+            # STEP 1: Encode to HLS (or detect existing output for smart retry)
             hls_output_dir = getattr(settings, 'HLS_OUTPUT_DIR', '/tmp/hls_videos')
-            service = HLSStreamingService(output_dir=hls_output_dir)
-            
-            encoding_result = service.encode_to_hls(
-                input_file=input_file,
-                video_id=video_id
-            )
-            
-            if not encoding_result['success']:
-                error_msg = encoding_result.get('error', 'Unknown encoding error')
-                logger.error(f"❌ Encoding failed: {error_msg}")
-                hls_playlist.status = 'failed'
-                hls_playlist.error_message = error_msg
-                hls_playlist.save(update_fields=['status', 'error_message'])
-                video.status = 'failed'
-                video.save(update_fields=['status'])
-                return {"success": False, "error": error_msg}
-            
-            logger.info(f"✅ [Step 1/4] HLS encoding completed successfully")
-            
-            # ⚠️ REOPEN DB CONNECTION AFTER LONG ENCODING
-            # The FFmpeg encoding took 20+ minutes, so we need a fresh DB connection
-            from django.db import connections
-            connections.close_all()
-            
-            # Force a fresh connection by accessing the db
-            _ = Video.objects.filter(id=video_id).first()
-            logger.info(f"🔌 Reopened database connection after encoding")
+            video_output_dir_candidate = os.path.join(hls_output_dir, video_id)
+            master_candidate = os.path.join(video_output_dir_candidate, 'master.m3u8')
+
+            if os.path.exists(master_candidate):
+                # Smart retry: encoding already completed in a previous run that was
+                # interrupted during the R2 upload phase. Skip re-encoding to save time.
+                logger.info(f"[Step 1/4] HLS output already exists at {video_output_dir_candidate} — skipping re-encode (smart retry)")
+                encoding_result = {
+                    'success': True,
+                    'output_dir': video_output_dir_candidate,
+                    'renditions': {},        # renditions detail not critical for upload
+                    'duration_seconds': 0,
+                    'estimated_total_size_mb': 0,
+                }
+                # Smart retry — DB connection is still fresh, no need to reset
+                skip_connection_reset = True
+            else:
+                logger.info(f"[Step 1/4] Starting HLS encoding process...")
+                # ⚠️ CLOSE DB CONNECTION BEFORE LONG-RUNNING ENCODING
+                # FFmpeg encoding can take 20+ minutes, so we close the connection now
+                # and get a fresh one after encoding completes
+                connections.close_all()
+                logger.info(f"Closed DB connections before long encoding operation")
+                service = HLSStreamingService(output_dir=hls_output_dir)
+
+                encoding_result = service.encode_to_hls(
+                    input_file=input_file,
+                    video_id=video_id
+                )
+
+                if not encoding_result['success']:
+                    error_msg = encoding_result.get('error', 'Unknown encoding error')
+                    logger.error(f"Encoding failed: {error_msg}")
+                    hls_playlist.status = 'failed'
+                    hls_playlist.error_message = error_msg
+                    hls_playlist.save(update_fields=['status', 'error_message'])
+                    video.status = 'failed'
+                    video.save(update_fields=['status'])
+                    return {"success": False, "error": error_msg}
+
+                logger.info(f"[Step 1/4] HLS encoding completed successfully")
+                skip_connection_reset = False
+
+            # ⚠️ REOPEN DB CONNECTION (only needed after real FFmpeg encoding)
+            if not skip_connection_reset:
+                import time as _time
+                from django.db import connections
+                connections.close_all()
+                logger.info(f"Closed stale DB connections after long encoding operation")
+                reconnected = False
+                for _attempt in range(3):
+                    try:
+                        _ = Video.objects.filter(id=video_id).first()
+                        logger.info(f"DB connection reopened (attempt {_attempt + 1})")
+                        reconnected = True
+                        break
+                    except Exception as _conn_err:
+                        logger.warning(f"DB reconnect attempt {_attempt + 1} failed: {_conn_err}. Retrying in 5s...")
+                        _time.sleep(5)
+                if not reconnected:
+                    error_msg = "Cannot reconnect to database after encoding"
+                    logger.error(error_msg)
+                    hls_playlist.status = 'failed'
+                    hls_playlist.error_message = error_msg
+                    hls_playlist.save(update_fields=['status', 'error_message'])
+                    video.status = 'failed'
+                    video.save(update_fields=['status'])
+                    return {"success": False, "error": error_msg}
             
             # STEP 2: Update video duration
             try:
@@ -169,14 +203,18 @@ def encode_video_to_hls(self, video_id, content_id=None):
                 logger.warning(f"⚠️  Could not update duration: {str(e)}")
             
             # STEP 3: R2 Upload
-            logger.info(f"📤 [Step 3/4] Starting R2 upload...")
+            logger.info(f"[Step 3/4] Starting R2 upload...")
+            video_output_dir = encoding_result['output_dir']
+            r2_prefix = f"videos/{video_id}"
+
             hls_playlist.status = 'uploading'
-            hls_playlist.save(update_fields=['status'])
+            hls_playlist.r2_prefix = r2_prefix   # Save prefix early so crashed task is resumable
+            hls_playlist.save(update_fields=['status', 'r2_prefix'])
             
             r2_service = get_r2_service_from_settings(settings)
             if not r2_service:
                 error_msg = "R2 service not configured"
-                logger.error(f"❌ {error_msg}")
+                logger.error(f"{error_msg}")
                 hls_playlist.status = 'failed'
                 hls_playlist.error_message = error_msg
                 hls_playlist.save(update_fields=['status', 'error_message'])
@@ -184,20 +222,25 @@ def encode_video_to_hls(self, video_id, content_id=None):
                 video.save(update_fields=['status'])
                 return {"success": False, "error": error_msg}
             
-            video_output_dir = encoding_result['output_dir']
-            r2_prefix = f"videos/{video_id}"
-            
-            logger.info(f"R2 Prefix: {r2_prefix}")
-            
-            upload_results = r2_service.upload_directory(
-                local_dir=video_output_dir,
-                r2_prefix=r2_prefix,
-                extensions=['.m3u8', '.ts']
-            )
+            try:
+                upload_results = r2_service.upload_directory(
+                    local_dir=video_output_dir,
+                    r2_prefix=r2_prefix,
+                    extensions=['.m3u8', '.ts']
+                )
+            except Exception as upload_exc:
+                error_msg = f"R2 upload exception: {str(upload_exc)}"
+                logger.error(f"{error_msg}", exc_info=True)
+                hls_playlist.status = 'failed'
+                hls_playlist.error_message = error_msg
+                hls_playlist.save(update_fields=['status', 'error_message'])
+                video.status = 'failed'
+                video.save(update_fields=['status'])
+                return {"success": False, "error": error_msg}
             
             if not upload_results['success']:
-                error_msg = "Failed to upload to R2"
-                logger.error(f"❌ {error_msg}")
+                error_msg = f"R2 upload failed: {upload_results.get('error', 'unknown')}"
+                logger.error(f"{error_msg}")
                 hls_playlist.status = 'failed'
                 hls_playlist.error_message = error_msg
                 hls_playlist.save(update_fields=['status', 'error_message'])
@@ -205,7 +248,7 @@ def encode_video_to_hls(self, video_id, content_id=None):
                 video.save(update_fields=['status'])
                 return {"success": False, "error": error_msg}
             
-            logger.info(f"✅ [Step 3/4] R2 upload completed: {upload_results.get('files_uploaded', 0)} files")
+            logger.info(f"[Step 3/4] R2 upload completed: {upload_results.get('files_uploaded', 0)} files")
             
             # STEP 4: Update playlist and finalize
             logger.info(f"🎯 [Step 4/4] Finalizing and storing R2 URLs...")
@@ -258,30 +301,40 @@ def encode_video_to_hls(self, video_id, content_id=None):
                 
                 # Use content_id from admin portal, or generate one
                 if not content_id:
-                    logger.warning(f"⚠️  No content_id provided by admin portal, using fallback")
+                    logger.warning(f"No content_id provided by admin portal, using fallback")
                     effective_content_id = f'content_{video_id}'
                 else:
-                    logger.info(f"✅ Using content_id from admin: {content_id}")
+                    logger.info(f"Using content_id from admin: {content_id}")
                     effective_content_id = content_id
                 
-                # Create media entry for master playlist
+                # Upsert media entry for master playlist (safe to run multiple times on retry)
                 media_entry = {
                     'content_id': effective_content_id,
                     'media_type': 'video',
                     'file_url': master_playlist_url,
                     'is_primary': True,
                 }
-                
-                logger.info(f"📤 Inserting to content_media table:")
-                logger.info(f"   {media_entry}")
-                
-                response = supabase.table('content_media').insert(media_entry).execute()
-                
-                logger.info(f"✅ Media entry created successfully!")
-                logger.info(f"   Content ID: {effective_content_id}")
-                logger.info(f"   Media Type: video")
-                logger.info(f"   Master URL: {master_playlist_url}")
-                logger.info(f"   Reachable at: https://example.com/contents/{effective_content_id}")
+                logger.info(f"Saving content_media (video): {media_entry}")
+
+                existing = supabase.table('content_media').select('id').eq('content_id', effective_content_id).eq('media_type', 'video').execute()
+                if existing.data:
+                    supabase.table('content_media').update({
+                        'file_url': master_playlist_url, 'is_primary': True
+                    }).eq('content_id', effective_content_id).eq('media_type', 'video').execute()
+                    logger.info(f"content_media UPDATED — content_id={effective_content_id}")
+                else:
+                    supabase.table('content_media').insert(media_entry).execute()
+                    logger.info(f"content_media INSERTED — content_id={effective_content_id}, url={master_playlist_url}")
+
+                # Update the encoding_ref entry so the admin portal knows it's done
+                try:
+                    supabase.table('content_media').update({
+                        'file_url': f'completed:{video_id}',
+                        'file_name': f'django_video_id:{video_id}:completed',
+                    }).eq('content_id', effective_content_id).eq('media_type', 'encoding_ref').execute()
+                    logger.info(f"encoding_ref updated to completed for {effective_content_id}")
+                except Exception as ref_exc:
+                    logger.warning(f"Could not update encoding_ref: {ref_exc}")
                 
             except Exception as e:
                 logger.error(f"❌ Failed to create media entry in Supabase: {str(e)}", exc_info=True)

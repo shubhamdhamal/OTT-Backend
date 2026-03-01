@@ -363,21 +363,47 @@ class VideoViewSet(viewsets.ModelViewSet):
         """
         Retry encoding for a failed video
         POST /api/videos/{id}/retry_encoding/
+        Optional body: { "content_id": "<supabase_content_id>" }
         """
         video = self.get_object()
         
         try:
-            # Start encoding task again
-            encode_video_to_hls.delay(video.id)
+            from .tasks import encode_video_to_hls
+
+            # Accept content_id from request body so the task can update Supabase
+            content_id = request.data.get('content_id') or request.POST.get('content_id')
+
+            # Validate the original file is still present
+            original_path = video.get_original_file_path()
+            if not original_path or not os.path.exists(original_path):
+                return Response(
+                    {"error": f"Original video file no longer exists at {original_path}. Cannot retry."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Reset status so the task cycle works correctly
+            video.status = 'uploading'
+            video.save(update_fields=['status'])
+            try:
+                hls_playlist = video.hls_playlist
+                hls_playlist.status = 'queued'
+                hls_playlist.error_message = ''
+                hls_playlist.save(update_fields=['status', 'error_message'])
+            except HLSPlaylist.DoesNotExist:
+                pass
+
+            task = encode_video_to_hls.delay(video.id, content_id)
+            logger.info(f"Retry task queued: video={video.id}, task={task.id}, content_id={content_id}")
             
             return Response({
                 "success": True,
                 "message": "Encoding task requeued",
-                "video_id": video.id
+                "video_id": video.id,
+                "task_id": task.id,
             })
         
         except Exception as e:
-            logger.error(f"Error retrying encoding: {e}")
+            logger.error(f"Error retrying encoding: {e}", exc_info=True)
             return Response(
                 {"error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR

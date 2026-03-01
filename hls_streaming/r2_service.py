@@ -23,7 +23,8 @@ class R2StorageService:
         access_key_id: str,
         secret_access_key: str,
         bucket_name: str = "ott-videos",
-        region: str = "auto"
+        region: str = "auto",
+        public_domain: str = None
     ):
         """
         Initialize R2 storage service
@@ -37,6 +38,9 @@ class R2StorageService:
         """
         self.bucket_name = bucket_name
         self.account_id = account_id
+        # Public CDN domain for serving files (no auth required)
+        # Falls back to private endpoint if not set (will cause 403 errors!)
+        self.public_domain = public_domain.rstrip('/') if public_domain else None
         
         # Initialize S3 client for R2
         self.s3_client = boto3.client(
@@ -85,8 +89,13 @@ class R2StorageService:
                     }
                 )
             
-            # Construct public URL
-            url = f"https://{self.account_id}.r2.cloudflarestorage.com/{self.bucket_name}/{r2_key}"
+            # Construct public CDN URL (not the private API endpoint)
+            if self.public_domain:
+                url = f"{self.public_domain}/{r2_key}"
+            else:
+                # Fallback: private URL (will require auth - use public_domain in production!)
+                url = f"https://{self.account_id}.r2.cloudflarestorage.com/{self.bucket_name}/{r2_key}"
+                logger.warning(f"⚠️  No R2_PUBLIC_DOMAIN set! Using private URL which requires auth.")
             logger.info(f"✅ Uploaded: {url}")
             return True, url
         
@@ -177,8 +186,12 @@ class R2StorageService:
         return results
     
     def get_master_playlist_url(self, video_id: str) -> str:
-        """Get the public R2 URL for master playlist"""
+        """Get the public CDN URL for master playlist"""
         r2_key = f"videos/{video_id}/master.m3u8"
+        if self.public_domain:
+            return f"{self.public_domain}/{r2_key}"
+        # Fallback: private URL (will fail without auth)
+        logger.warning(f"⚠️  No R2_PUBLIC_DOMAIN set! Master playlist URL will require auth.")
         return f"https://{self.account_id}.r2.cloudflarestorage.com/{self.bucket_name}/{r2_key}"
     
     def delete_file(self, r2_key: str) -> bool:
@@ -232,7 +245,8 @@ def get_r2_service_from_settings(settings) -> Optional[R2StorageService]:
             account_id=settings.R2_ACCOUNT_ID,
             access_key_id=settings.R2_ACCESS_KEY_ID,
             secret_access_key=settings.R2_SECRET_ACCESS_KEY,
-            bucket_name=getattr(settings, 'R2_BUCKET_NAME', 'ott-videos')
+            bucket_name=getattr(settings, 'R2_BUCKET_NAME', 'ott-videos'),
+            public_domain=getattr(settings, 'R2_PUBLIC_DOMAIN', None)
         )
     except Exception as e:
         logger.error(f"❌ Failed to initialize R2 service: {e}")
