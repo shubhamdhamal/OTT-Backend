@@ -156,13 +156,19 @@ rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl restart nginx
 success "Nginx configured"
 
-# -- 8. SSH hardening ---------------------------------------------------------
-info "Hardening SSH..."
-sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
-sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/'   /etc/ssh/sshd_config
-sed -i 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/'      /etc/ssh/sshd_config
-systemctl restart sshd
-success "SSH hardened (key-only login, no root password login)"
+# -- 8. SSH hardening (optional) ---------------------------------------------
+# WARNING: Enabling this without a working SSH key can lock you out.
+# Enable only after you verify key-based login works.
+if [ "${ENABLE_SSH_HARDENING:-false}" = "true" ]; then
+    info "Hardening SSH (ENABLE_SSH_HARDENING=true)..."
+    sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+    sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/'   /etc/ssh/sshd_config
+    sed -i 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/'      /etc/ssh/sshd_config
+    systemctl restart sshd
+    success "SSH hardened (key-only login, no root password login)"
+else
+    warn "Skipping SSH hardening (set ENABLE_SSH_HARDENING=true to enable)."
+fi
 
 # -- 9. Print next steps ------------------------------------------------------
 echo ""
