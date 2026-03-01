@@ -79,22 +79,38 @@ WSGI_APPLICATION = 'ott_backend.wsgi.application'
 
 # Database Configuration
 import os
+import socket
 from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _resolve_ipv4(hostname: str) -> str:
+    try:
+        addresses = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
+        if addresses:
+            return addresses[0][4][0]
+    except Exception:
+        pass
+    return hostname
+
 # Use PostgreSQL if configured, otherwise SQLite for development
 if os.getenv('DB_HOST'):
+    db_host = os.getenv('DB_HOST')
+    force_ipv4 = os.getenv('DB_FORCE_IPV4', 'True').lower() in ('1', 'true', 'yes')
+    db_host_ipv4 = os.getenv('DB_HOSTADDR') or (_resolve_ipv4(db_host) if force_ipv4 else db_host)
+
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
             'NAME': os.getenv('DB_NAME', 'postgres'),
             'USER': os.getenv('DB_USER', 'postgres'),
             'PASSWORD': os.getenv('DB_PASSWORD'),
-            'HOST': os.getenv('DB_HOST'),
+            'HOST': db_host,
             'PORT': os.getenv('DB_PORT', '5432'),
             'CONN_MAX_AGE': 0,  # Don't reuse connections - create new for each request (fixes upload timeouts)
             'OPTIONS': {
+                'hostaddr': db_host_ipv4,
                 'connect_timeout': 10,
                 'keepalives': 1,
                 'keepalives_idle': 30,
