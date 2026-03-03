@@ -20,7 +20,7 @@ if os.path.exists(env_file):
                 env_vars[key.strip()] = value.strip()
 
 # Get Redis connection
-CELERY_BROKER_URL = env_vars.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
+CELERY_BROKER_URL = env_vars.get('CELERY_BROKER_URL', 'redis://redis:6379/0')
 print(f"📍 Redis URL: {CELERY_BROKER_URL}")
 
 try:
