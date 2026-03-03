@@ -55,7 +55,7 @@ services:
         --loglevel=info
         --concurrency=2
         --max-tasks-per-child=10
-        -Q celery
+        -Q celery,video_encoding
     healthcheck:
       test: ["CMD", "celery", "-A", "ott_backend", "inspect", "ping", "-d", "celery@$$HOSTNAME"]
       interval: 60s
