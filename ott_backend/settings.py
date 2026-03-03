@@ -25,8 +25,16 @@ SECRET_KEY = 'django-insecure-&_-g&nyuw@db1ov(=i$%@2f00arq%nef6(c6rg+d6xig_nfev=
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+#allowd host added for milesweb vps
+ALLOWED_HOSTS = ["api.drishyalok.com",
+    "localhost",
+    "127.0.0.1"]
 
+#If Nginx says X-Forwarded-Proto = https, treat it as secure added for milesweb vps
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+# SECURE_SSL_REDIRECT = True
+# SESSION_COOKIE_SECURE = True
+# CSRF_COOKIE_SECURE = True
 
 # Application definition
 
