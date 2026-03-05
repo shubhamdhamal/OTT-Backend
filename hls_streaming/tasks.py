@@ -336,6 +336,33 @@ def encode_video_to_hls(self, video_id, content_id=None):
                 except Exception as ref_exc:
                     logger.warning(f"Could not update encoding_ref: {ref_exc}")
                 
+                # ── STEP 5b: Set content status to 'published' ────────────────────
+                try:
+                    supabase.table('contents').update({
+                        'status': 'published',
+                        'is_new': True,
+                    }).eq('id', effective_content_id).execute()
+                    logger.info(f"✅ contents.status set to 'published' for {effective_content_id}")
+                except Exception as pub_exc:
+                    logger.error(f"❌ Could not set content published: {pub_exc}")
+
+                # ── STEP 5c: Broadcast in-app notification to all users ───────────
+                try:
+                    # Get content title for the notification
+                    content_row = supabase.table('contents').select('title').eq('id', effective_content_id).maybe_single().execute()
+                    content_title = (content_row.data or {}).get('title', 'New Video')
+
+                    supabase.table('notifications').insert({
+                        'user_id': None,   # None = broadcast to all users
+                        'title': '🎬 New Video Available!',
+                        'message': f'"{content_title}" is now live. Watch it now!',
+                        'type': 'info',
+                        'link': f'/content/{effective_content_id}',
+                    }).execute()
+                    logger.info(f"📢 Broadcast notification sent for '{content_title}'")
+                except Exception as notif_exc:
+                    logger.error(f"❌ Could not send broadcast notification: {notif_exc}")
+                
             except Exception as e:
                 logger.error(f"❌ Failed to create media entry in Supabase: {str(e)}", exc_info=True)
                 logger.error(f"   This means Flutter app will NOT be able to find the video!")
