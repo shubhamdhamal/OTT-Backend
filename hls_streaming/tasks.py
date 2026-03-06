@@ -67,14 +67,14 @@ def send_video_encoding_notification(user_email, video_title, video_id, master_p
         logger.error(f"❌ Failed to send email notification: {str(e)}", exc_info=True)
 
 
-@shared_task(bind=True, time_limit=60*60, soft_time_limit=55*60, max_retries=2)
+@shared_task(bind=True, time_limit=3*60*60, soft_time_limit=150*60, max_retries=2)
 def encode_video_to_hls(self, video_id, content_id=None):
     """
     Async task to encode video to HLS format and upload to R2
     
     TIME LIMITS:
-    - Soft limit: 55 minutes (graceful shutdown signal - allow cleanup)
-    - Hard limit: 60 minutes (1 hour force kill to prevent hanging processes)
+    - Soft limit: 150 minutes (2.5 hours) — graceful shutdown signal
+    - Hard limit: 180 minutes (3 hours) — force kill to prevent hanging
     
     Args:
         video_id: ID of the video to encode

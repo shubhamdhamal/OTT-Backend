@@ -56,8 +56,8 @@ class HLSEncodingConfig:
     
     # Encoding settings
     CRF_HEVC = 28         # Quality (lower = better, 28 = good quality at lower bitrate)
-    CRF_H264 = 28
-    PRESET = "fast"       # Encoding speed: ultrafast, fast, medium, slow
+    CRF_H264 = 23         # H.264 quality (23 = visually lossless at typical bitrates)
+    PRESET = "medium"     # Encoding speed: ultrafast, fast, medium, slow
     
     # Audio settings
     AUDIO_BITRATE = "128k"
@@ -219,12 +219,14 @@ class HLSStreamingService:
         self,
         input_file: str,
         output_dir: str,
-        rendition: VideoRendition
+        rendition: VideoRendition,
+        dir_name: str = None
     ) -> bool:
-        """Encode video to H.264 format (fallback)"""
-        logger.info(f"🎬 Encoding {rendition.name} with H.264 (fallback)...")
+        """Encode video to H.264 format"""
+        logger.info(f"🎬 Encoding {rendition.name} with H.264...")
         
-        output_path = os.path.join(output_dir, f"{rendition.name}_h264")
+        folder = dir_name if dir_name is not None else f"{rendition.name}_h264"
+        output_path = os.path.join(output_dir, folder)
         Path(output_path).mkdir(parents=True, exist_ok=True)
         
         playlist_file = os.path.join(output_path, "index.m3u8")
@@ -263,7 +265,7 @@ class HLSStreamingService:
             )
             
             if result.returncode == 0:
-                logger.info(f"✅ Successfully encoded {rendition.name} (H.264 fallback)")
+                logger.info(f"✅ Successfully encoded {rendition.name} (H.264)")
                 return True
             else:
                 logger.error(f"❌ Error encoding {rendition.name} (H.264): {result.stderr}")
@@ -294,15 +296,18 @@ class HLSStreamingService:
                     f"{rendition.name}/index.m3u8\n\n"
                 )
         
-        # H.264 fallback variants
-        playlist_content += "# H.264 - Fallback variants for compatibility\n"
+        # H.264 variants
+        playlist_content += "# H.264 variants\n"
         for rendition in self.config.RENDITIONS:
+            # When H.265 is present these are fallback dirs (name_h264/); when H.264-only
+            # they are the primary dirs (name/).
+            h264_dir = f"{rendition.name}_h264" if use_h265 else rendition.name
             playlist_content += (
                 f"#EXT-X-STREAM-INF:"
                 f"BANDWIDTH={int(rendition.bitrate[:-1]) * 1000},"
                 f"RESOLUTION={rendition.resolution},"
                 f"CODECS=\"avc1.42e01e,mp4a.40.2\"\n"
-                f"{rendition.name}_h264/index.m3u8\n\n"
+                f"{h264_dir}/index.m3u8\n\n"
             )
         
         try:
@@ -365,40 +370,31 @@ class HLSStreamingService:
                 "Consider reducing bitrates or video duration."
             )
         
-        # Encode renditions
+        # Encode renditions — H.264 only (no H.265 to avoid CPU/time-limit issues)
         encoding_results = {}
-        hevc_success_count = 0
-        
+        h264_success_count = 0
+
         for rendition in self.config.RENDITIONS:
-            # Encode with H.265
-            hevc_success = self._encode_rendition_hevc(
+            h264_success = self._encode_rendition_h264(
                 input_file,
                 video_output_dir,
-                rendition
+                rendition,
+                dir_name=rendition.name   # Save directly to 480p/ and 720p/
             )
             encoding_results[rendition.name] = {
-                "hevc": hevc_success,
-                "h264": False  # Will be set below
+                "hevc": False,
+                "h264": h264_success
             }
-            
-            if hevc_success:
-                hevc_success_count += 1
-                # If H.265 succeeded, also encode H.264 fallback
-                h264_success = self._encode_rendition_h264(
-                    input_file,
-                    video_output_dir,
-                    rendition
-                )
-                encoding_results[rendition.name]["h264"] = h264_success
-        
-        # Create master playlist
-        use_hevc = hevc_success_count > 0
+            if h264_success:
+                h264_success_count += 1
+
+        # Create master playlist (H.264 only)
         master_success = self._create_master_playlist(
             video_output_dir,
-            use_h265=use_hevc
+            use_h265=False
         )
-        
-        success = hevc_success_count > 0 and master_success
+
+        success = h264_success_count > 0 and master_success
         
         return {
             "success": success,
