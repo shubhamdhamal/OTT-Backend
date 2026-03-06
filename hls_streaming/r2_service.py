@@ -57,7 +57,8 @@ class R2StorageService:
         self,
         local_file_path: str,
         r2_key: str,
-        content_type: str = "application/octet-stream"
+        content_type: str = "application/octet-stream",
+        cache_control: str = "public, max-age=31536000"
     ) -> Tuple[bool, str]:
         """
         Upload a single file to R2
@@ -85,7 +86,7 @@ class R2StorageService:
                     r2_key,
                     ExtraArgs={
                         'ContentType': content_type,
-                        'CacheControl': 'public, max-age=31536000'  # 1 year for segments
+                        'CacheControl': cache_control,
                     }
                 )
             
@@ -150,23 +151,29 @@ class R2StorageService:
                 relative_path = os.path.relpath(local_file_path, local_dir)
                 r2_key = f"{r2_prefix}/{relative_path}".strip('/').replace('\\', '/')
                 
-                # Determine content type
+                # Determine content type and cache control
                 if file.endswith('.m3u8'):
                     content_type = 'application/vnd.apple.mpegurl'
+                    cache_control = 'public, max-age=10'  # 10s — playlists update frequently
                 elif file.endswith('.ts'):
                     content_type = 'video/MP2T'
+                    cache_control = 'public, max-age=31536000'  # 1 year — segments are immutable
                 elif file.endswith('.jpg'):
                     content_type = 'image/jpeg'
+                    cache_control = 'public, max-age=31536000'
                 elif file.endswith('.png'):
                     content_type = 'image/png'
+                    cache_control = 'public, max-age=31536000'
                 else:
                     content_type = 'application/octet-stream'
+                    cache_control = 'public, max-age=31536000'
                 
                 # Upload file
                 success, url_or_error = self.upload_file(
                     local_file_path,
                     r2_key,
-                    content_type
+                    content_type,
+                    cache_control,
                 )
                 
                 if success:
