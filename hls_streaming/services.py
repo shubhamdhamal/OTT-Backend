@@ -57,7 +57,7 @@ class HLSEncodingConfig:
     # Encoding settings
     CRF_HEVC = 28         # Quality (lower = better, 28 = good quality at lower bitrate)
     CRF_H264 = 23         # H.264 quality (23 = visually lossless at typical bitrates)
-    PRESET = "medium"     # Encoding speed: ultrafast, fast, medium, slow
+    PRESET = "veryfast"   # Encoding speed: ultrafast, superfast, veryfast, faster, fast, medium, slow
     
     # Audio settings
     AUDIO_BITRATE = "128k"
